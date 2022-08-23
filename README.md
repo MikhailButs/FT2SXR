@@ -8,6 +8,7 @@ The code to work with soft x-ray sprctral diagnostic on FT-2 tokamak in Ioffe In
 Original repositories: https://github.com/AVSidorov/FT2SXR and https://github.com/AVSidorov/exam_adc
 
 File to start programm: app4test.py
+Google buffers must be installed to launch the programm
 
 Current functions :
 - control of fast ADC 250MHz, 14b by InSys with one-board computer inside
