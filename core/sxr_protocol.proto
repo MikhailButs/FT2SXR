@@ -1,0 +1,177 @@
+syntax = "proto2";
+
+package sxr_protocol;
+
+message MainPacket{
+  required fixed32 address = 1;
+  required fixed32 sender = 2;
+  required fixed32 command = 3;
+  optional bytes data = 4;
+  optional string version = 5;
+}
+
+message AdcStatus{
+  optional string name = 1;
+  optional bool enabled = 2 [default = false];
+  optional bool connected = 3 [default = false];
+  optional fixed32 sampling_rate = 4;
+  optional float inter_channel_delay = 41;
+  optional float inter_sample_delay = 42;
+  optional fixed32 samples = 5;
+
+  enum EnumStartSource{
+    option allow_alias = true;
+    SOFTSTART = 0;
+    INTSTART = 0;
+    EXTSTART = 1;
+    IN0 = 2;
+    STARTTHR = 2;
+  }
+  optional EnumStartSource start = 6 [default = SOFTSTART];
+  optional float start_threshold = 61;
+  optional bool start_inversion = 62;
+  optional bytes start_mode= 63;
+
+  optional EnumStartSource stop = 7 [default = SOFTSTART];
+  optional float stop_threshold = 71;
+  optional bool stop_inversion = 72;
+  optional bytes stop_mode= 73;
+
+  enum EnumClockSource{
+    CLOCKOFF = 0;
+    CLOCKINT = 1;
+    CLOCKEXT = 2;
+  }
+  optional EnumClockSource clock_source = 8 [default = CLOCKINT];
+
+  enum EnumMemory{
+    MEMHOST = 0; //PC etc.
+    MEMINT = 1;  //Internal ADC Memory
+    MEMFIFO = 3;
+  }
+  optional EnumMemory memory_type = 9;
+
+  message BoardStatus{
+    optional string name = 1;
+    optional bool enabled = 2;
+    optional bytes channel_mask = 3;
+
+    message ChannelStatus{
+      optional string name = 1;
+      optional bool enabled = 2 [default = false];
+      optional float gain = 3 [default = 1.0];
+      optional float bias = 4 [default = 0.0];
+    }
+    repeated ChannelStatus channel_status = 4;
+
+  }
+  repeated BoardStatus board_status = 10;
+  enum ConnectorsIn{
+    CON_CH_1 = 1;
+    CON_CH_2 = 2;
+    CON_CH_3 = 3;
+    CON_CH_4 = 4;
+    CON_CH_5 = 5;
+    CON_CH_6 = 6;
+    CON_CH_7 = 7;
+    CON_CH_8 = 8;
+    CON_START = 9;
+    CON_CLOCK = 10;
+  }
+
+}
+
+message AmpStatus{
+  required float gainA = 1 [default = 0.0];
+  required float gainB= 2 [default = 0.0];
+  required uint32 tail = 3 [default = 6];
+
+  enum ConnectorsIn{
+    CON_IN = 0;
+  }
+  enum ConnectorsOut{
+    CON_CH_A = 1;
+    CON_CH_B = 2;
+  }
+}
+
+message SystemStatus{
+  enum EnumState{
+    IDLE = 0;
+    MEASUREMENT = 1;
+    CALIBRATION = 2;
+    BACKGROUND = 3;
+ }
+  required EnumState state = 1 [default = IDLE];
+
+  enum EnumDev{
+    option allow_alias = true;
+    SXR = 1;
+    ADC = 2;
+    PX5 = 3;
+    AMP = 4;
+    GSA = 5;
+    MINIX2 = 6;
+    XRAY = 6;
+    SOURCE = 6;
+    FE55 = 7;
+    SDD = 8;
+    TOKAMAK = 9;
+  }
+  repeated EnumDev devs = 2;
+
+  enum ConnectorsOut{
+    CON_OUT = 0;
+    CON_CON1 = 1;
+    CON_CON2 = 2;
+  }
+  enum ConnectorsIn{
+    CON_IN = 0;
+    CON_CH_1 = 1;
+    CON_CH_2 = 2;
+    CON_CH_3 = 3;
+    CON_CH_4 = 4;
+    CON_CH_5 = 5;
+    CON_CH_6 = 6;
+    CON_CH_7 = 7;
+    CON_CH_8 = 8;
+    CON_START = 9;
+    CON_CLOCK = 10;
+  }
+
+  repeated Bind binds = 3;
+
+}
+
+enum Commands{
+  option allow_alias = true;
+  INFO = 0;
+  STATUS = 1;
+  GET_STATUS = 1;
+  GET = 2;
+  GET_SETTINGS = 2;
+  SET = 3;
+  SET_STATUS = 3;
+  SETTINGS = 3;
+  START = 4;
+  STOP = 5;
+  REBOOT = 6;
+  CONNECT = 7;
+  SNAPSHOT = 8;
+  SHUTDOWN = 9;
+}
+
+message Source{
+  required SystemStatus.EnumDev dev = 1;
+  required SystemStatus.ConnectorsOut connector = 2;
+}
+
+message Receiver{
+  required SystemStatus.EnumDev dev = 1;
+  required SystemStatus.ConnectorsOut connector = 2;
+}
+
+message Bind{
+  required Source source = 1;
+  repeated Receiver receivers = 2;
+}
