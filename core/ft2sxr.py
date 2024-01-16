@@ -1,11 +1,14 @@
 import h5py
-
 from core.core import Dev
 from core.sxr_protocol_pb2 import MainPacket, SystemStatus, Commands
 from core.sxr_protocol_pb2 import AmpStatus, AdcStatus  # temporary for wiring
 from dev.insys.adc import ADC
 from dev.amptek.px5 import PX5
 from dev.tubl.amplifier import Amplifier
+from dev.hardware.table import Hardware
+from dev.journal.journal import Journal
+from dev.tokamak.tokamak import Tokamak
+from dev.tubl.GSA import Gsa
 from core.fileutils import today_dir
 import os
 import numpy as np
@@ -15,6 +18,7 @@ class Ft2SXR(Dev):
     def __init__(self, parent=None, wdir=None):
         super().__init__(parent, SystemStatus.SXR, SystemStatus())
         core = self.get_origin_core()
+        self.status = SystemStatus()
 
         if wdir is None:
             self.wdir = today_dir()
@@ -22,6 +26,9 @@ class Ft2SXR(Dev):
             self.wdir = wdir
 
         self.request_to_sys = MainPacket()
+        self.request_to_gui = MainPacket()
+        self.request_to_gui.sender = self.address
+        self.request_to_gui.address = 16
         self.request_to_dev = MainPacket()
         self.request_to_dev.sender = self.address
         self.request_to_dev.command = Commands.INFO
@@ -33,6 +40,10 @@ class Ft2SXR(Dev):
         self.adc = ADC(self)
         self.px5 = PX5(self)
         self.amp = Amplifier(self)
+        self.hardware = Hardware(self)
+        self.journal = Journal(self)
+        self.tokamak = Tokamak(self)
+        self.gsa = Gsa(self)
 
         # connect devs to message system
         if core is not None:
@@ -49,9 +60,25 @@ class Ft2SXR(Dev):
             self.amp.channel0.connect(core.channel0)       # out Main Packets (commands)
             core.channel0.connect(self.amp.channel0_slot)  # in Main Packets (commands)
 
+            self.hardware.channel0.connect(core.channel0)  # out Main Packets (commands)
+            core.channel0.connect(self.hardware.channel0_slot)  # in Main Packets (commands)
+
+            self.journal.channel0.connect(core.channel0)  # out Main Packets (commands)
+            core.channel0.connect(self.journal.channel0_slot)  # in Main Packets (commands)
+
+            self.tokamak.channel0.connect(core.channel0)  # out Main Packets (commands)
+            core.channel0.connect(self.tokamak.channel0_slot)  # in Main Packets (commands)
+
+            self.gsa.channel0.connect(core.channel0)  # out Main Packets (commands)
+            core.channel0.connect(self.gsa.channel0_slot)  # in Main Packets (commands)
+
         self.state.devs.append(SystemStatus.ADC)
         self.state.devs.append(SystemStatus.AMP)
         self.state.devs.append(SystemStatus.PX5)
+        self.state.devs.append(SystemStatus.HARDWARE)
+        self.state.devs.append(SystemStatus.JOURNAL)
+        self.state.devs.append(SystemStatus.TOKAMAK)
+        self.state.devs.append(SystemStatus.GSA)
         
         # devices wiring
         self.state.binds.add()
@@ -133,10 +160,12 @@ class Ft2SXR(Dev):
         self.command_to_devs(Commands.STOP, response)
 
     def snapshot(self, request: MainPacket = None,  response: bool = False):
-        hf, sxr = super().snapshot(f'{self.wdir}/?', response)
+        # hf, sxr = super().snapshot(f'{self.wdir}/?', response)
+        filename = os.path.abspath(os.path.join(self.wdir, f'{self.journal.state.filename}.h5'))
+        hf, sxr = super().snapshot(f'{self.wdir}/{f"{self.journal.state.filename}.h5"}', response)
         sxr.attrs['name'] = 'SXR diagnostics'
         sxr.attrs['comments'] = ''
-        filename = os.path.abspath(os.path.join(self.wdir, hf.filename))
+        # filename = os.path.abspath(os.path.join(self.wdir, hf.filename))  # old
 
         # make wiring table
         wiring = wiring_tab(self.state.binds)
@@ -183,6 +212,10 @@ class Ft2SXR(Dev):
                 # Command que have two "params" devs in que and command should be sent.
                 # If response from one device coincide with current command in que (in self.request_to_dev packet)
                 # next request (command to next device) will be sent
+            elif self.request.command == Commands.DONE:
+                self.request_to_gui.command = Commands.DONE
+                if self.request_to_gui.IsInitialized():
+                    self.channel0.emit(self.request_to_gui.SerializeToString())
 
     def shutdown(self, response: bool = False):
         if self.parent() is not None:

@@ -30,7 +30,9 @@ message AdcStatus{
   optional EnumStartSource start = 6 [default = SOFTSTART];
   optional float start_threshold = 61;
   optional bool start_inversion = 62;
-  optional bytes start_mode= 63;
+  optional bytes start_mode = 63;
+
+  optional bool is_in_periodic = 11;
 
   optional EnumStartSource stop = 7 [default = SOFTSTART];
   optional float stop_threshold = 71;
@@ -55,10 +57,12 @@ message AdcStatus{
     optional string name = 1;
     optional bool enabled = 2;
     optional bytes channel_mask = 3;
+    optional bytes hidden_channel_mask = 5;
 
     message ChannelStatus{
       optional string name = 1;
       optional bool enabled = 2 [default = false];
+      optional bool void = 5 [default = false];
       optional float gain = 3 [default = 1.0];
       optional float bias = 4 [default = 0.0];
     }
@@ -82,9 +86,9 @@ message AdcStatus{
 }
 
 message AmpStatus{
-  required float gainA = 1 [default = 0.0];
-  required float gainB= 2 [default = 0.0];
-  required uint32 tail = 3 [default = 6];
+  required float gainA = 1 [default = 0.0]; // wheel units
+  required float gainB= 2 [default = 0.0]; // wheel units
+  required uint32 tail = 3 [default = 6]; // ns
 
   enum ConnectorsIn{
     CON_IN = 0;
@@ -95,7 +99,46 @@ message AmpStatus{
   }
 }
 
+message HardwareStatus{
+  required float angle = 1 [default = 0.0]; // degrees
+  required float vknife = 2 [default = 0.0]; // mm
+  required float hknife = 3 [default = 0.0]; // mm
+  required string foil = 4 [default = '?'];
+  required string diaphragm = 5 [default = '?'];
+  optional bool shiber = 6 [default = false];
+}
+
+message JournalStatus{
+  required uint32 SXRshot = 1 [default = 0];
+  optional uint32 TOKAMAKshot = 2 [default = 0];
+  required string filename = 3 [default = 'SXRspectrum'];
+  optional string comment = 4 [default = ''];
+  optional string daycomment = 5 [default = ''];
+  optional string signal_source = 6 [default = ''];
+  optional string work_type = 7 [default = ''];
+}
+
+message TokamakStatus{
+  optional float density = 1 [default = 0]; // lines
+  optional uint32 current = 2 [default = 0]; // kA
+  enum EnumShot{
+    OH = 0;
+    RF = 1;
+    GLOW = 2;
+    OFF = 3;
+  }
+  optional EnumShot shotType = 3 [default = OH]; // mode
+  optional uint32 power = 4 [default = 0]; // kW
+}
+
+message GsaStatus{
+  optional float amplitude = 1 [default = 0]; // mV
+  optional float edge = 2 [default = 24]; // ns
+  optional float frequency = 3 [default = 626]; // Hz
+}
+
 message SystemStatus{
+
   enum EnumState{
     IDLE = 0;
     MEASUREMENT = 1;
@@ -106,6 +149,8 @@ message SystemStatus{
 
   enum EnumDev{
     option allow_alias = true;
+    UNKNOWN = 0;
+    ANY = 0;
     SXR = 1;
     ADC = 2;
     PX5 = 3;
@@ -117,6 +162,8 @@ message SystemStatus{
     FE55 = 7;
     SDD = 8;
     TOKAMAK = 9;
+    JOURNAL = 10;
+    HARDWARE = 11;
   }
   repeated EnumDev devs = 2;
 
@@ -159,6 +206,7 @@ enum Commands{
   CONNECT = 7;
   SNAPSHOT = 8;
   SHUTDOWN = 9;
+  DONE = 10;
 }
 
 message Source{
