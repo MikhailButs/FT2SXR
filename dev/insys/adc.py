@@ -17,11 +17,13 @@ from core.fileutils import work_dir, today_dir
 
 
 class Channel:
-    def __init__(self, gain=1., bias=0., on=False):
+    def __init__(self, gain=1., bias=0., on=False, void=False, name='No name'):
         self.gain = gain
         self.bias = bias
         self.on = on
         self.data = np.ndarray((0,))
+        self.void = void
+        self.name = name
 
 
 class Board:
@@ -64,9 +66,11 @@ class ADC(Dev):
         self.ssh = None
         self.ssh_timeout = 0.5
         self.file_base = 'data_0'
-        self.wdir = os.path.abspath('./')
+        # self.wdir = os.path.abspath('./')
+        self.wdir = work_dir()
         self.scp = None
         self.config = None
+        self.additional_config = None
         self.isAcqComplete = False
         self.started = False
 
@@ -76,8 +80,8 @@ class ADC(Dev):
         config.optionxform = str
 
         # read config from directory of launch
-        if os.path.exists(os.path.join(self.wdir, 'adc.ini')):
-            config.read(os.path.join(self.wdir, 'adc.ini'), "utf-8")
+        if os.path.exists(os.path.join(self.wdir, 'dev', 'insys', 'adc.ini')):
+            config.read(os.path.join(self.wdir, 'dev', 'insys', 'adc.ini'), "utf-8")
             self.config = config
 
             mask = self.get_cfg_item('device0_fm814x250m0', 'ChannelMask')
@@ -93,12 +97,18 @@ class ADC(Dev):
                 if bias is not None:
                     self.boards[0].channels[ch_n].bias = float(bias)
 
+        config_add = configparser.ConfigParser(inline_comment_prefixes=(';', '//'))
+        if os.path.exists(os.path.join(self.wdir, 'dev', 'insys', 'adc_additional.ini')):
+            config_add.read(os.path.join(self.wdir, 'dev', 'insys', 'adc_additional.ini'), "utf-8")
+            self.additional_config = config_add
+
+
         self.status = AdcStatus()
         self.get_status()
 
         # make directory whit current date, to store adc memory dumps and  cfg.ini for sending
         if wdir is None:
-            self.wdir = today_dir()
+            self.wdir = work_dir()
 
         if connect:
             self.connection_watch = Thread(name='Thread-ADC_connection-watchdog', target=self.watchdog, daemon=True)
@@ -117,8 +127,9 @@ class ADC(Dev):
             self.connected = True
             ssh = client.invoke_shell()
             self.ssh = ssh
+            print('cd')
             ssh.send('cd /home/embedded/examples\n')
-            self.ssh_output(0.5)
+            self.ssh_output(1)
 
             scp = SCPClient(client.get_transport())
             self.scp = scp
@@ -128,8 +139,10 @@ class ADC(Dev):
             if self.response.IsInitialized() and self.parent is not None:
                 self.channel0.emit(self.response.SerializeToString())
             self.reset_packets()
+            print('Done connection')
         except:
             self.connected = False
+            print('connection error')
 
     def ssh_output(self, timeout=None):
         if timeout is None:
@@ -146,10 +159,12 @@ class ADC(Dev):
 
     def send_config(self):
         config = self.config
-        with open(os.path.join(self.wdir, 'cfg.ini'), 'w') as f:
+        with open(os.path.join(self.wdir, 'dev/insys/temp/adc.ini'), 'w') as f:
             config.write(f)
         if self.connected:
-            self.scp.put(os.path.join(self.wdir, 'cfg.ini'), '/home/embedded/examples/exam_adc.ini')
+            print(f"config from {os.path.join(self.wdir, 'dev', 'insys', 'adc.ini')}")
+            self.scp.put(os.path.join(self.wdir, 'dev', 'insys', 'adc.ini'), '/home/embedded/examples/exam_adc.ini')
+            print('Done config')
 
     def start(self, response: bool = False):
         # separate function for ability start ADC(thread) "manually", not only by command in packet
@@ -160,45 +175,53 @@ class ADC(Dev):
     def run(self, response: bool = False):
             self.started = True
             self.isAcqComplete = False
-            if os.path.exists(os.path.join(self.wdir, self.file_base+'.bin')):
-                os.remove(os.path.join(self.wdir, self.file_base+'.bin'))
+            if os.path.exists(os.path.join(self.wdir, 'dev/insys/temp/'+self.file_base+'.bin')):
+                os.remove(os.path.join(self.wdir, 'dev/insys/temp/'+self.file_base+'.bin'))
 
             #TODO remove using ssh shell. Use exec_command instead
 
             # if connected run exam_adc
             if self.connected:
+                print('exam')
                 self.ssh.send('/home/embedded/examples/exam_adc\n')
+                print('exam send')
             else:
                 self.started = False
                 self.isAcqComplete = True
 
             # wait for exam_adc ending or stopping by user
             while self.started:
-                pass
+                time.sleep(0.1)
+                print('waiting')
 
+            print('Done measurement')
             # if data acquired get adc memory dump file
             if self.isAcqComplete:
                 if self.connected:
                     # if connected copy from adc
-                    self.scp.get('/home/embedded/examples/data_0.bin', self.wdir)
+                    self.scp.get('/home/embedded/examples/data_0.bin', os.path.join(self.wdir, 'dev', 'insys', 'temp'))
 
                     # wait for file transfer completes
-                    while not(os.path.exists(os.path.join(self.wdir, self.file_base+'.bin'))):
-                        pass
+                    while not(os.path.exists(os.path.join(self.wdir, 'dev/insys/temp/'+self.file_base+'.bin'))):
+                        time.sleep(0.1)
+                    print('Got files')
                 else:
                     self.generate_data()
                 # read dump from disk (generated or loaded from adc)
-                dump = np.fromfile(os.path.join(self.wdir, self.file_base + '.bin'), dtype=np.int16)
+                dump = np.fromfile(os.path.join(self.wdir, 'dev/insys/temp/'+self.file_base + '.bin'), dtype=np.int16)
 
             else:
                 dump = np.ndarray((0,))
 
             dump = dump.reshape((-1, self.boards[0].n_active_ch)).T
-            cols = (_ for _ in dump)
+            # cols = (_ for _ in dump)
 
+            n = 0
             for ch in self.boards[0].channels:
                 if ch.on:
-                    ch.data = next(cols)
+                    # ch.data = next(cols)
+                    ch.data = dump[n]
+                    n += 1
                 else:
                     ch.data = np.ndarray((0,))
 
@@ -212,7 +235,7 @@ class ADC(Dev):
 
             self.request.address = SystemStatus.SXR
             self.request.sender = self.address
-            self.request.command = Commands.SNAPSHOT
+            self.request.command = Commands.DONE
             if self.request.IsInitialized():
                 self.channel0.emit(self.request.SerializeToString())
 
@@ -291,6 +314,12 @@ class ADC(Dev):
                 self.state.board_status.add()
             self.state.board_status[0].channel_mask = self.boards[0].channel_mask.to_bytes(1, 'big')
 
+        config = configparser.ConfigParser()
+        with open(os.path.join(self.wdir, 'dev/insys/adc_additional.ini'), 'r') as f:
+            config.read_file(f)
+
+        self.state.is_in_periodic = eval(config['adc_additional']['is_in_periodic'])
+
         for ch_n in range(len(self.boards[0].channels)):
             bias = self.get_cfg_item('device0_fm814x250m0', f'Bias{ch_n}')
             if len(self.state.board_status) < 1:
@@ -300,6 +329,10 @@ class ADC(Dev):
                     self.state.board_status[0].channel_status.add()
                 self.state.board_status[0].channel_status[ch_n].enabled = self.boards[0].channels[ch_n].on
                 self.state.board_status[0].channel_status[ch_n].bias = float(bias)
+                self.state.board_status[0].channel_status[ch_n].name = config['adc_additional'][f'name{ch_n+1}']
+                self.state.board_status[0].channel_status[ch_n].void = bool((int(config['adc_additional']['void_mask'], 2) >> (len(self.boards[0].channels) - ch_n - 1)) & 1)
+
+        del config
 
         self._response(response, self.state.SerializeToString())
 
@@ -343,6 +376,8 @@ class ADC(Dev):
                 n_ch += 1
                 self.config['device0_fm814x250m0'][f'Bias{n_ch}'] = f'{ch_status.bias:4.2f}'
                 self.boards[0].channels[n_ch].bias = ch_status.bias
+                self.boards[0].channels[n_ch].name = ch_status.name
+                self.boards[0].channels[n_ch].void = ch_status.void
 
         if status.start == status.SOFTSTART:
             self.config['device0_fm814x250m0']['StartSource'] = '3'
@@ -353,6 +388,29 @@ class ADC(Dev):
         elif status.start == status.IN0:
             self.config['device0_fm814x250m0']['StartSource'] = '0'
             self.config['device0_fm814x250m0']['StartBaseSource'] = '7'
+
+        with open(os.path.join(self.wdir, 'dev/insys/adc.ini'), 'w') as f:
+            self.config.write(f)
+
+        config = configparser.ConfigParser()
+        with open(os.path.join(self.wdir, 'dev/insys/adc_additional.ini'), 'r') as f:
+            config.read_file(f)
+        config['adc_additional']['is_in_periodic'] = str(status.is_in_periodic)
+        void_mask = 0
+        if len(status.board_status) > 0:
+            n_ch = -1
+            for ch_status in status.board_status[0].channel_status:
+                n_ch += 1
+                if ch_status.void:
+                    void_mask += 1
+                void_mask = void_mask << 1
+                config['adc_additional'][f'name{n_ch+1}'] = ch_status.name
+            void_mask = void_mask >> 1
+            config['adc_additional']['void_mask'] = str(bin(void_mask))
+        with open(os.path.join(self.wdir, 'dev/insys/adc_additional.ini'), 'w') as f:
+            config.write(f)
+        with open(os.path.join(self.wdir, 'dev', 'insys', 'temp', 'adc_additional.ini'), 'w') as f:
+            config.write(f)
 
         if response is not None:
             self.get_status(response)
@@ -373,7 +431,7 @@ class ADC(Dev):
                 col += 1
 
         dump = dump.reshape((-1, 1)).squeeze()
-        with open(os.path.join(self.wdir, self.file_base + '.bin'), 'w') as f:
+        with open(os.path.join(self.wdir, 'dev/insys/temp/'+self.file_base + '.bin'), 'w') as f:
             dump.tofile(f)
         return dump
 
@@ -408,6 +466,7 @@ class ADC(Dev):
                     self.connected = transp.is_alive()
                     time.sleep(timeout)
 
+            print('Error watchdog')
             self.response.data = 'ADC disconnected'.encode()
             if self.response.IsInitialized() and self.parent is not None:
                 self.channel0.emit(self.response.SerializeToString())
@@ -437,9 +496,10 @@ class ADC(Dev):
 
         adc.attrs['num_active_ch'] = self.boards[0].n_active_ch
         for ch in self.boards[0].channels:
-            if ch.on:
-                dset = adc.create_dataset(f'channel{self.boards[0].channels.index(ch):02d}', shape=ch.data.shape,  compression="gzip", compression_opts=1, data=ch.data)
+            if ch.on and not ch.void:
+                dset = adc.create_dataset(f'channel{self.boards[0].channels.index(ch):02d}', shape=ch.data.shape, data=ch.data)
                 dset.attrs['units'] = 'adc counts'
+                dset.attrs['name'] = ch.name
 
         filename = hf.filename
         hf.close()
